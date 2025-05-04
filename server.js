@@ -14,10 +14,12 @@ const {
 
 const app = express();
 
+// 1) CORS per il front-end
 app.use(cors({
   origin: [ALLOWED_ORIGIN, ALLOWED_ORIGIN_DEV],
   credentials: true
 }));
+
 app.use(express.json());
 
 const server = http.createServer(app);
@@ -31,16 +33,18 @@ const io = new Server(server, {
 io.on('connection', socket => {
   console.log(`✔ Client connesso: ${socket.id}`);
 
+  // join alle stanze
   socket.on('join', room => {
     socket.join(room);
     console.log(`→ ${socket.id} entra in ${room}`);
   });
 
+  // messaggio in arrivo dal client
   socket.on('message', async ({ room, user, text, ts }) => {
-    // 1) rilancio in realtime a tutti tranne il mittente
-    socket.to(room).emit('message', { user, text, ts });
+    // 1) rilancio in realtime, includendo 'room'
+    io.to(room).emit('message', { room, user, text, ts });
 
-    // 2) salvo la cronologia
+    // 2) salvo lo storico chiamando save.php su Altervista
     const userId = room.replace(/^private-chat-/, '');
     try {
       const res = await fetch(
@@ -57,7 +61,9 @@ io.on('connection', socket => {
         }
       );
       const json = await res.json();
-      if (!json.ok) console.error('save.php non OK:', json);
+      if (!json.ok) {
+        console.error('save.php non OK:', json);
+      }
     } catch (err) {
       console.error('Errore chiamata save.php:', err);
     }
