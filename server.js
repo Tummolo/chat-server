@@ -6,14 +6,17 @@ const cors    = require('cors');
 const fetch   = require('node-fetch');    // npm install node-fetch@2
 const { Server } = require('socket.io');
 
+const {
+  ALLOWED_ORIGIN,
+  ALLOWED_ORIGIN_DEV,
+  ALTERVISTA_API_BASE
+} = process.env;
+
 const app = express();
 
-// permetti richieste solo dal tuo front-end e dallo stesso server
+// 1) CORS per il front-end
 app.use(cors({
-  origin: [
-    process.env.ALLOWED_ORIGIN,       // es. https://ios2020.altervista.org
-    process.env.ALLOWED_ORIGIN_DEV,   // es. http://localhost:5173
-  ],
+  origin: [ALLOWED_ORIGIN, ALLOWED_ORIGIN_DEV],
   credentials: true
 }));
 
@@ -22,10 +25,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: [
-      process.env.ALLOWED_ORIGIN,
-      process.env.ALLOWED_ORIGIN_DEV
-    ],
+    origin: [ALLOWED_ORIGIN, ALLOWED_ORIGIN_DEV],
     credentials: true
   }
 });
@@ -33,35 +33,39 @@ const io = new Server(server, {
 io.on('connection', socket => {
   console.log(`✔ Client connesso: ${socket.id}`);
 
+  // join alle stanze
   socket.on('join', room => {
     socket.join(room);
     console.log(`→ ${socket.id} entra in ${room}`);
   });
 
+  // messaggio in arrivo dal client
   socket.on('message', async ({ room, user, text, ts }) => {
-    // 1) rilancio in realtime
-    io.to(room).emit('message', { user, text, ts });
+    // 1) rilancio in realtime, includendo 'room'
+    io.to(room).emit('message', { room, user, text, ts });
 
-    // 2) salvo la cronologia chiamando il tuo save.php
+    // 2) salvo lo storico chiamando save.php su Altervista
+    const userId = room.replace(/^private-chat-/, '');
     try {
       const res = await fetch(
-        `${process.env.ALTERVISTA_API_BASE}/chat/save.php`,
+        `${ALTERVISTA_API_BASE}/chat/save.php`,
         {
           method: 'POST',
-          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_id: room.replace('private-chat-',''),
-            sender: user,
+            user_id: userId,
+            sender:  user,
             text,
             ts
           })
         }
       );
       const json = await res.json();
-      if (!json.ok) console.error('Save.php error:', json);
-    } catch(err) {
-      console.error('Errore fetch save.php:', err);
+      if (!json.ok) {
+        console.error('save.php non OK:', json);
+      }
+    } catch (err) {
+      console.error('Errore chiamata save.php:', err);
     }
   });
 
